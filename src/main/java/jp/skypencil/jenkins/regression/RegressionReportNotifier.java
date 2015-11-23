@@ -4,6 +4,7 @@ import static com.google.common.collect.Iterables.transform;
 import hudson.Extension;
 import hudson.Launcher;
 import hudson.Util;
+import hudson.console.AnnotatedLargeText;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.model.AbstractBuild;
@@ -18,6 +19,11 @@ import hudson.tasks.junit.CaseResult;
 import hudson.tasks.test.AbstractTestResultAction;
 import hudson.tasks.test.TestResult;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Date;
 import java.util.List;
@@ -101,7 +107,7 @@ public final class RegressionReportNotifier extends Notifier {
     
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
-            BuildListener listener) throws InterruptedException {
+            BuildListener listener) throws InterruptedException, IOException {
         PrintStream logger = listener.getLogger();
 
         if (build.getResult() == Result.SUCCESS) {
@@ -157,7 +163,7 @@ public final class RegressionReportNotifier extends Notifier {
 
     private void mailReport(List<CaseResult> regressions, String recipients,
             BuildListener listener, AbstractBuild<?, ?> build)
-            throws MessagingException {
+            throws MessagingException, IOException {
         if (regressions.isEmpty()) {
             return;
         }
@@ -245,7 +251,7 @@ public final class RegressionReportNotifier extends Notifier {
     }
 
     private void attachLogFile(AbstractBuild<?, ?> build, MimeMessage message, String content, PrintStream logger) 
-            throws MessagingException {
+            throws MessagingException, IOException {
         BodyPart emailAttachment = new MimeBodyPart();
         Multipart multipart = new MimeMultipart();
                     
@@ -253,13 +259,17 @@ public final class RegressionReportNotifier extends Notifier {
         bodyText.setText(content);
         multipart.addBodyPart(bodyText);
                     
-        String file = build.getLogFile().getPath();
-        String fileName = "log";
-        DataSource source = new FileDataSource(file);
+        String filePath = build.getRootDir().getAbsolutePath()+"buildLog.txt";
+        File textFile = new File(filePath);
+        FileOutputStream out = new FileOutputStream(textFile);
+        build.getLogText().writeLogTo(0, out);
+        
+        String fileName = "buildLog.txt";
+        DataSource source = new FileDataSource(filePath);
         emailAttachment.setDataHandler(new DataHandler(source));
         emailAttachment.setFileName(fileName);
         multipart.addBodyPart(emailAttachment);
-        logger.println("Build log file " + file + " is attached to the email");
+        logger.println("Build log file " + filePath + " is attached to the email");
         
         message.setContent(multipart);  
     }
