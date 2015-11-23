@@ -8,6 +8,7 @@ import static org.junit.Assert.assertThat;
 import static org.powermock.api.mockito.PowerMockito.doReturn;
 import static org.powermock.api.mockito.PowerMockito.mock;
 import hudson.Launcher;
+import hudson.console.AnnotatedLargeText;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.model.AbstractBuild;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.Writer;
+import java.nio.charset.Charset;
 import java.util.List;
 
 import javax.mail.Address;
@@ -121,7 +123,6 @@ public class RegressionReportNotifierTest {
     }
     
     @Test 
-    @Ignore
     public void testAttachLogFile() throws InterruptedException, MessagingException, IOException {
         makeRegression();
         
@@ -131,52 +132,21 @@ public class RegressionReportNotifierTest {
         writer.close();
 
         File f = new File("log");
-        doReturn(f).when(build).getLogFile();
-
+        AnnotatedLargeText text = new AnnotatedLargeText(f, Charset.defaultCharset(), false, build); 
+        doReturn(text).when(build).getLogText();
+        doReturn(f.getAbsoluteFile().getParentFile()).when(build).getRootDir();
+        
         RegressionReportNotifier notifier = new RegressionReportNotifier("author@mail.com", false, true);
         MockedMailSender mailSender = new MockedMailSender();
         notifier.setMailSender(mailSender);
 
-        assertThat(build.getLogFile(), is(notNullValue()));
+        assertThat(build.getLogText(), is(notNullValue()));
         assertThat(notifier.perform(build, launcher, listener), is(true)); 
         assertThat(mailSender.getSentMessage(), is(notNullValue()));
-
-        assertThat(notifier.getAttachLog(), is(true));
-        assertThat(mailSender.getSentMessage().getContent() instanceof Multipart, is(true));
         
-        Multipart multipartContent = (Multipart) mailSender.getSentMessage().getContent();
-        assertThat(multipartContent.getCount(), is(2));
-        assertThat(((MimeBodyPart)multipartContent.getBodyPart(1)).getDisposition(), is(equalTo(Part.ATTACHMENT)));
-        assertThat(((MimeBodyPart)multipartContent.getBodyPart(0)).getDisposition(), is(nullValue()));
-
-        f.delete();
-    }
-
-    @Test
-    @Ignore
-    public void testAttachLogFile2() throws InterruptedException, MessagingException, IOException {
-        makeRegression();
-        
-        Writer writer = null;
-        writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("log"), "utf-8"));
-        writer.write("test");
-        writer.close();
-
-        File f = new File("log");
-        doReturn(f).when(build).getLogFile();
-
-        RegressionReportNotifier notifier = new RegressionReportNotifier("author@mail.com", true, true);
-        MockedMailSender mailSender = new MockedMailSender();
-        notifier.setMailSender(mailSender);
-
-        assertThat(build.getLogFile(), is(notNullValue()));
-        assertThat(notifier.perform(build, launcher, listener), is(true)); 
-        assertThat(mailSender.getSentMessage(), is(notNullValue()));
-
         Address[] to = mailSender.getSentMessage().getRecipients(RecipientType.TO);
-        assertThat(to.length, is(2));
+        assertThat(to.length, is(1));
         assertThat(to[0].toString(), is(equalTo("author@mail.com")));
-        assertThat(to[1].toString(), is(equalTo("culprit@mail.com")));
 
         assertThat(notifier.getAttachLog(), is(true));
         assertThat(mailSender.getSentMessage().getContent() instanceof Multipart, is(true));
