@@ -24,14 +24,21 @@ import java.util.List;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import javax.activation.DataHandler;
+import javax.activation.DataSource;
+import javax.activation.FileDataSource;
 import javax.mail.Address;
+import javax.mail.BodyPart;
 import javax.mail.Message.RecipientType;
 import javax.mail.MessagingException;
+import javax.mail.Multipart;
 import javax.mail.Session;
 import javax.mail.Transport;
 import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
+import javax.mail.internet.MimeMultipart;
 
 import jenkins.model.Jenkins;
 import jenkins.model.JenkinsLocationConfiguration;
@@ -55,6 +62,7 @@ public final class RegressionReportNotifier extends Notifier {
     private static final int MAX_RESULTS_PER_MAIL = 20;
     private final String recipients;
     private final boolean sendToCulprits;
+    private final boolean attachLog;
     private MailSender mailSender = new RegressionReportNotifier.MailSender() {
         @Override
         public void send(MimeMessage message) throws MessagingException {
@@ -63,9 +71,10 @@ public final class RegressionReportNotifier extends Notifier {
     };
 
     @DataBoundConstructor
-    public RegressionReportNotifier(String recipients, boolean sendToCulprits) {
+    public RegressionReportNotifier(String recipients, boolean sendToCulprits, boolean attachLog) {
         this.recipients = recipients;
         this.sendToCulprits = sendToCulprits;
+        this.attachLog = attachLog;
     }
 
     @VisibleForTesting
@@ -86,6 +95,10 @@ public final class RegressionReportNotifier extends Notifier {
         return sendToCulprits;
     }
 
+    public boolean getAttachLog() {
+        return attachLog;
+    }
+    
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
             BuildListener listener) throws InterruptedException {
@@ -190,9 +203,18 @@ public final class RegressionReportNotifier extends Notifier {
         message.setSubject(Messages.RegressionReportNotifier_MailSubject());
         message.setRecipients(RecipientType.TO,
                 recipentList.toArray(new Address[recipentList.size()]));
-        message.setContent("", "text/plain");
+        
+        if (attachLog) {
+            attachLogFile(build, message, builder.toString(), listener.getLogger());
+        }
+        else{
+            message.setContent("", "text/plain");
+            message.setText(builder.toString());
+        }
+        
+        //message.setContent("", "text/plain");
         message.setFrom(adminAddress);
-        message.setText(builder.toString());
+        //message.setText(builder.toString());
         message.setSentDate(new Date());
 
         mailSender.send(message);
@@ -222,6 +244,26 @@ public final class RegressionReportNotifier extends Notifier {
         return list;
     }
 
+    private void attachLogFile(AbstractBuild<?, ?> build, MimeMessage message, String content, PrintStream logger) 
+            throws MessagingException {
+        BodyPart emailAttachment = new MimeBodyPart();
+        Multipart multipart = new MimeMultipart();
+                    
+        BodyPart bodyText = new MimeBodyPart();
+        bodyText.setText(content);
+        multipart.addBodyPart(bodyText);
+                    
+        String file = build.getLogFile().getPath();
+        String fileName = "log";
+        DataSource source = new FileDataSource(file);
+        emailAttachment.setDataHandler(new DataHandler(source));
+        emailAttachment.setFileName(fileName);
+        multipart.addBodyPart(emailAttachment);
+        logger.println("Build log file " + file + " is attached to the email");
+        
+        message.setContent(multipart);  
+    }
+    
     @Extension
     public static final class DescriptorImpl extends
             BuildStepDescriptor<Publisher> {
