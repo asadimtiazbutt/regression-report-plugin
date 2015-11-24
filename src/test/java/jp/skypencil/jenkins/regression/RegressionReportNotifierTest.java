@@ -66,7 +66,7 @@ public class RegressionReportNotifierTest {
             IOException {
         doReturn(null).when(build).getAction(AbstractTestResultAction.class);
         RegressionReportNotifier notifier = new RegressionReportNotifier("",
-                false, false);
+                false);
 
         assertThat(notifier.perform(build, launcher, listener), is(true));
     }
@@ -76,7 +76,7 @@ public class RegressionReportNotifierTest {
         makeRegression();
 
         RegressionReportNotifier notifier = new RegressionReportNotifier(
-                "author@mail.com", false, false);
+                "author@mail.com", false);
         MockedMailSender mailSender = new MockedMailSender();
         notifier.setMailSender(mailSender);
 
@@ -94,7 +94,7 @@ public class RegressionReportNotifierTest {
         makeRegression();
 
         RegressionReportNotifier notifier = new RegressionReportNotifier(
-                "author@mail.com", true, false);
+                "author@mail.com", true);
         MockedMailSender mailSender = new MockedMailSender();
         notifier.setMailSender(mailSender);
 
@@ -126,12 +126,7 @@ public class RegressionReportNotifierTest {
     public void testAttachLogFile() throws InterruptedException, MessagingException, IOException {
         makeRegression();
         
-        Writer writer = null;
-        writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("log"), "utf-8"));
-        writer.write("regression");
-        writer.close();
-
-        File f = new File("log");
+        File f = new File("src/test/resources/log");
         AnnotatedLargeText text = new AnnotatedLargeText(f, Charset.defaultCharset(), false, build); 
         doReturn(text).when(build).getLogText();
         doReturn(f.getAbsoluteFile().getParentFile()).when(build).getRootDir();
@@ -155,8 +150,6 @@ public class RegressionReportNotifierTest {
         assertThat(multipartContent.getCount(), is(2));
         assertThat(((MimeBodyPart)multipartContent.getBodyPart(1)).getDisposition(), is(equalTo(Part.ATTACHMENT)));
         assertThat(((MimeBodyPart)multipartContent.getBodyPart(0)).getDisposition(), is(nullValue()));
-
-        f.delete();
     }
 
     private static final class MockedMailSender implements
