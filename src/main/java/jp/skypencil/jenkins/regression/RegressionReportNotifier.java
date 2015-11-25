@@ -81,7 +81,7 @@ public final class RegressionReportNotifier extends Notifier {
         this.sendToCulprits = sendToCulprits;
         this.attachLog = false;
     }
-    
+
     @DataBoundConstructor
     public RegressionReportNotifier(String recipients, boolean sendToCulprits, boolean attachLog) {
         this.recipients = recipients;
@@ -110,7 +110,7 @@ public final class RegressionReportNotifier extends Notifier {
     public boolean getAttachLog() {
         return attachLog;
     }
-    
+
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
             BuildListener listener) throws InterruptedException, IOException {
@@ -214,16 +214,16 @@ public final class RegressionReportNotifier extends Notifier {
         MimeMessage message = new MimeMessage(session);
         message.setSubject(Messages.RegressionReportNotifier_MailSubject());
         message.setRecipients(RecipientType.TO,
-                recipentList.toArray(new Address[recipentList.size()]));        
+                recipentList.toArray(new Address[recipentList.size()]));
         message.setContent("", "text/plain");
         message.setFrom(adminAddress);
         message.setText(builder.toString());
         message.setSentDate(new Date());
-        
+
         if (attachLog) {
             attachLogFile(build, message, builder.toString());
-        } 
-        
+        }
+
         mailSender.send(message);
     }
 
@@ -251,30 +251,30 @@ public final class RegressionReportNotifier extends Notifier {
         return list;
     }
 
-    private void attachLogFile(AbstractBuild<?, ?> build, MimeMessage message, String content) 
+    private void attachLogFile(AbstractBuild<?, ?> build, MimeMessage message, String content)
             throws MessagingException, IOException {
-    	
+
         Multipart multipart = new MimeMultipart();
-                    
+
         BodyPart bodyText = new MimeBodyPart();
         bodyText.setText(content);
         multipart.addBodyPart(bodyText);
-                    
+
         String filePath = build.getRootDir().getAbsolutePath()+"buildLog.txt";
         File textFile = new File(filePath);
         FileOutputStream out = new FileOutputStream(textFile);
         build.getLogText().writeLogTo(0, out);
-        
+
         BodyPart emailAttachment = new MimeBodyPart();
         String fileName = "buildLog.txt";
         DataSource source = new FileDataSource(filePath);
         emailAttachment.setDataHandler(new DataHandler(source));
         emailAttachment.setFileName(fileName);
         multipart.addBodyPart(emailAttachment);
-        
-        message.setContent(multipart);  
+
+        message.setContent(multipart);
     }
-    
+
     @Extension
     public static final class DescriptorImpl extends
             BuildStepDescriptor<Publisher> {
