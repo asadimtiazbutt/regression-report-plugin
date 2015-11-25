@@ -255,7 +255,6 @@ public final class RegressionReportNotifier extends Notifier {
             throws MessagingException, IOException {
 
         Multipart multipart = new MimeMultipart();
-
         BodyPart bodyText = new MimeBodyPart();
         bodyText.setText(content);
         multipart.addBodyPart(bodyText);
