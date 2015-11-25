@@ -4,6 +4,7 @@ import static com.google.common.collect.Iterables.transform;
 import hudson.Extension;
 import hudson.Launcher;
 import hudson.Util;
+import hudson.console.AnnotatedLargeText;
 import hudson.model.BuildListener;
 import hudson.model.Result;
 import hudson.model.AbstractBuild;
@@ -16,23 +17,37 @@ import hudson.tasks.Publisher;
 import hudson.tasks.Mailer;
 import hudson.tasks.junit.CaseResult;
 import hudson.tasks.test.AbstractTestResultAction;
+import hudson.tasks.test.TestResult;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import javax.activation.DataHandler;
+import javax.activation.DataSource;
+import javax.activation.FileDataSource;
 import javax.mail.Address;
+import javax.mail.BodyPart;
 import javax.mail.Message.RecipientType;
 import javax.mail.MessagingException;
+import javax.mail.Multipart;
 import javax.mail.Session;
 import javax.mail.Transport;
 import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
+import javax.mail.internet.MimeMultipart;
 
 import jenkins.model.Jenkins;
+import jenkins.model.JenkinsLocationConfiguration;
 
 import org.kohsuke.stapler.DataBoundConstructor;
 
@@ -53,6 +68,7 @@ public final class RegressionReportNotifier extends Notifier {
     private static final int MAX_RESULTS_PER_MAIL = 20;
     private final String recipients;
     private final boolean sendToCulprits;
+    private final boolean attachLog;
     private MailSender mailSender = new RegressionReportNotifier.MailSender() {
         @Override
         public void send(MimeMessage message) throws MessagingException {
@@ -60,10 +76,17 @@ public final class RegressionReportNotifier extends Notifier {
         }
     };
 
-    @DataBoundConstructor
     public RegressionReportNotifier(String recipients, boolean sendToCulprits) {
         this.recipients = recipients;
         this.sendToCulprits = sendToCulprits;
+        this.attachLog = false;
+    }
+
+    @DataBoundConstructor
+    public RegressionReportNotifier(String recipients, boolean sendToCulprits, boolean attachLog) {
+        this.recipients = recipients;
+        this.sendToCulprits = sendToCulprits;
+        this.attachLog = attachLog;
     }
 
     @VisibleForTesting
@@ -84,9 +107,13 @@ public final class RegressionReportNotifier extends Notifier {
         return sendToCulprits;
     }
 
+    public boolean getAttachLog() {
+        return attachLog;
+    }
+
     @Override
     public boolean perform(AbstractBuild<?, ?> build, Launcher launcher,
-            BuildListener listener) throws InterruptedException {
+            BuildListener listener) throws InterruptedException, IOException {
         PrintStream logger = listener.getLogger();
 
         if (build.getResult() == Result.SUCCESS) {
@@ -103,8 +130,7 @@ public final class RegressionReportNotifier extends Notifier {
         }
 
         logger.println("regression reporter starts now...");
-        List<CaseResult> failedTest = testResultAction.getFailedTests();
-        List<CaseResult> regressionedTests = Lists.newArrayList(Iterables.filter(failedTest, new RegressionPredicate()));
+        List<CaseResult> regressionedTests = listRegressions(testResultAction);
 
         writeToConsole(regressionedTests, listener);
         try {
@@ -115,6 +141,15 @@ public final class RegressionReportNotifier extends Notifier {
 
         logger.println("regression reporter ends.");
         return true;
+    }
+
+    private List<CaseResult> listRegressions(
+            AbstractTestResultAction<?> testResultAction) {
+        List<? extends TestResult> failedTest = testResultAction.getFailedTests();
+        Iterable<? extends TestResult> filtered = Iterables.filter(failedTest, new RegressionPredicate());
+        List<CaseResult> regressionedTests =
+                Lists.newArrayList(Iterables.transform(filtered, new TestResultToCaseResult()));
+        return regressionedTests;
     }
 
     private void writeToConsole(List<CaseResult> regressions,
@@ -134,7 +169,7 @@ public final class RegressionReportNotifier extends Notifier {
 
     private void mailReport(List<CaseResult> regressions, String recipients,
             BuildListener listener, AbstractBuild<?, ?> build)
-            throws MessagingException {
+            throws MessagingException, IOException {
         if (regressions.isEmpty()) {
             return;
         }
@@ -147,8 +182,8 @@ public final class RegressionReportNotifier extends Notifier {
         if (Jenkins.getInstance() != null) {
             rootUrl = Jenkins.getInstance().getRootUrl();
             session = Mailer.descriptor().createSession();
-            adminAddress = new InternetAddress(Mailer.descriptor()
-                    .getAdminAddress());
+            adminAddress = new InternetAddress(
+                    JenkinsLocationConfiguration.get().getAdminAddress());
         }
         builder.append(Util.encode(rootUrl));
         builder.append(Util.encode(build.getUrl()));
@@ -185,6 +220,10 @@ public final class RegressionReportNotifier extends Notifier {
         message.setText(builder.toString());
         message.setSentDate(new Date());
 
+        if (attachLog) {
+            attachLogFile(build, message, builder.toString());
+        }
+
         mailSender.send(message);
     }
 
@@ -210,6 +249,30 @@ public final class RegressionReportNotifier extends Notifier {
         }
 
         return list;
+    }
+
+    private void attachLogFile(AbstractBuild<?, ?> build, MimeMessage message, String content)
+            throws MessagingException, IOException {
+
+        Multipart multipart = new MimeMultipart();
+
+        BodyPart bodyText = new MimeBodyPart();
+        bodyText.setText(content);
+        multipart.addBodyPart(bodyText);
+
+        String filePath = build.getRootDir().getAbsolutePath()+"buildLog.txt";
+        File textFile = new File(filePath);
+        FileOutputStream out = new FileOutputStream(textFile);
+        build.getLogText().writeLogTo(0, out);
+
+        BodyPart emailAttachment = new MimeBodyPart();
+        String fileName = "buildLog.txt";
+        DataSource source = new FileDataSource(filePath);
+        emailAttachment.setDataHandler(new DataHandler(source));
+        emailAttachment.setFileName(fileName);
+        multipart.addBodyPart(emailAttachment);
+
+        message.setContent(multipart);
     }
 
     @Extension
